@@ -31,6 +31,7 @@ const STATUS_LABELS: Record<WorkItem["status"], string> = {
 
 const WorkItemModal = ({ item, onClose, onUpdate }: WorkItemModalProps) => {
   const [title, setTitle] = useState(item.title);
+  const [titleError, setTitleError] = useState(false);
   const [saving, setSaving] = useState(false);
   const backdropRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -60,6 +61,12 @@ const WorkItemModal = ({ item, onClose, onUpdate }: WorkItemModalProps) => {
   );
 
   const saveTitle = useCallback(async () => {
+    if (!title.trim()) {
+      setTitleError(true);
+      titleRef.current?.focus();
+      return;
+    }
+    setTitleError(false);
     if (title === item.title) return;
     setSaving(true);
     try {
@@ -146,7 +153,7 @@ const WorkItemModal = ({ item, onClose, onUpdate }: WorkItemModalProps) => {
           <input
             ref={titleRef}
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => { setTitle(e.target.value); setTitleError(false); }}
             onBlur={saveTitle}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
@@ -154,17 +161,20 @@ const WorkItemModal = ({ item, onClose, onUpdate }: WorkItemModalProps) => {
                 saveTitle();
               }
             }}
-            placeholder="Untitled"
+            placeholder="Title required"
             style={{
               flex: 1,
               background: "none",
               border: "none",
+              borderBottom: titleError ? "1px solid var(--danger)" : "1px solid transparent",
               outline: "none",
-              color: "var(--text)",
+              color: titleError ? "var(--danger)" : "var(--text)",
               fontSize: 16,
               fontWeight: 500,
               fontFamily: "inherit",
               opacity: saving ? 0.6 : 1,
+              paddingBottom: 2,
+              transition: "border-color 80ms, color 80ms",
             }}
             onContextMenu={(e) => {
               e.preventDefault();

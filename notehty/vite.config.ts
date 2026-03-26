@@ -30,6 +30,29 @@ export default defineConfig(async () => ({
     }),
     react(),
   ],
+  // Lit custom elements require a single module instance across all packages.
+  // Vite's pre-bundler (esbuild) can create separate copies of lit/reactive-element
+  // for different @blocksuite/* packages, causing "new.target does not define a custom element".
+  // Fix: exclude all @blocksuite packages from pre-bundling so they load from node_modules
+  // as ESM, and dedupe lit so only one copy exists at runtime.
+  optimizeDeps: {
+    exclude: [
+      "@blocksuite/presets",
+      "@blocksuite/blocks",
+      "@blocksuite/store",
+      "@blocksuite/block-std",
+      "@blocksuite/inline",
+      "@blocksuite/global",
+    ],
+  },
+  resolve: {
+    dedupedDeps: [
+      "lit",
+      "@lit/reactive-element",
+      "lit-html",
+      "lit-element",
+    ],
+  },
   clearScreen: false,
   server: {
     port: 1420,

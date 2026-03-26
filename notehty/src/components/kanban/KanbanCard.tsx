@@ -37,8 +37,8 @@ const KanbanCard = ({
     borderRadius: 6,
     padding: "10px 12px",
     cursor: isDragging ? "grabbing" : "grab",
-    transition: "background 80ms, border-color 80ms, box-shadow 80ms",
-    opacity: isDragging ? 0.3 : 1,
+    transition: "background 80ms, border-color 80ms",
+    opacity: isDragging ? 0 : 1,
     boxShadow: isDragOverlay ? "0 8px 24px rgba(0,0,0,0.4)" : undefined,
     userSelect: "none",
   };
@@ -57,7 +57,8 @@ const KanbanCard = ({
       {...attributes}
       {...listeners}
       style={cardStyle}
-      onClick={onClick}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={onClick}
       onMouseEnter={(e) => {
         if (!isDragging) {
           (e.currentTarget as HTMLDivElement).style.background = "var(--surface-4)";
