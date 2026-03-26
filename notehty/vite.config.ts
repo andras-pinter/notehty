@@ -30,17 +30,6 @@ export default defineConfig(async () => ({
     }),
     react(),
   ],
-  // Lit custom elements require a single module instance across all packages.
-  // resolve.dedupe ensures Vite always resolves these to the same copy,
-  // preventing "new.target does not define a custom element" from multiple instances.
-  resolve: {
-    dedupe: [
-      "lit",
-      "@lit/reactive-element",
-      "lit-html",
-      "lit-element",
-    ],
-  },
   clearScreen: false,
   server: {
     port: 1420,

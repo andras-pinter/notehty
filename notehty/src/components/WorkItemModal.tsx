@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { X, FileText, PenLine } from "lucide-react";
 import type { WorkItem } from "../invoke";
 import {
   updateWorkItemTitle,
@@ -7,7 +7,8 @@ import {
   setFocus,
   deleteWorkItem,
 } from "../invoke";
-import BlockSuiteEditor from "./editor/BlockSuiteEditor";
+import NoteEditor from "./editor/NoteEditor";
+import DrawingEditor from "./editor/DrawingEditor";
 
 interface WorkItemModalProps {
   item: WorkItem;
@@ -39,6 +40,7 @@ const STATUS_COLORS: Record<WorkItem["status"], string> = {
 const WorkItemModal = ({ item, onClose, onUpdate }: WorkItemModalProps) => {
   const [title, setTitle] = useState(item.title);
   const [titleError, setTitleError] = useState(false);
+  const [tab, setTab] = useState<"notes" | "drawing">("notes");
   const backdropRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
   const savedTitleRef = useRef(item.title);
@@ -249,12 +251,61 @@ const WorkItemModal = ({ item, onClose, onUpdate }: WorkItemModalProps) => {
           </button>
         </div>
 
+        {/* Tab bar */}
+        <div
+          style={{
+            display: "flex",
+            gap: 2,
+            padding: "6px 16px",
+            borderBottom: "1px solid var(--border)",
+            flexShrink: 0,
+          }}
+        >
+          <TabButton active={tab === "notes"} onClick={() => setTab("notes")} icon={<FileText size={13} />} label="Notes" />
+          <TabButton active={tab === "drawing"} onClick={() => setTab("drawing")} icon={<PenLine size={13} />} label="Drawing" />
+        </div>
+
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
-          <BlockSuiteEditor docId={String(item.id)} mode="page" />
+          {tab === "notes" && <NoteEditor docId={String(item.id)} />}
+          {tab === "drawing" && <DrawingEditor docId={String(item.id)} />}
         </div>
       </div>
     </div>
   );
 };
+
+const TabButton = ({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}) => (
+  <button
+    onClick={onClick}
+    style={{
+      display: "flex",
+      alignItems: "center",
+      gap: 5,
+      padding: "4px 10px",
+      borderRadius: 5,
+      border: "none",
+      background: active ? "var(--accent-dim)" : "none",
+      color: active ? "var(--accent-text)" : "var(--text-subtle)",
+      fontSize: 12,
+      fontWeight: active ? 500 : 400,
+      cursor: "pointer",
+      fontFamily: "inherit",
+      transition: "all 80ms",
+    }}
+  >
+    {icon}
+    {label}
+  </button>
+);
 
 export default WorkItemModal;

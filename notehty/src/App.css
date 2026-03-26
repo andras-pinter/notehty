@@ -40,22 +40,28 @@ html, body, #root {
 ::-webkit-scrollbar-thumb { background: var(--surface-4); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-subtle); }
 
-/* BlockSuite overrides — prevent white flash on resize/load */
-affine-editor-container,
-affine-doc-root,
-.affine-doc-viewport,
-editor-host {
-  background: transparent !important;
-  --affine-background-primary-color: var(--surface-2) !important;
-  --affine-background-secondary-color: var(--surface-3) !important;
-  --affine-background-tertiary-color: var(--surface-4) !important;
-  --affine-background-overlay-panel-color: var(--surface-3) !important;
-  --affine-text-primary-color: var(--text) !important;
-  --affine-text-secondary-color: var(--text-muted) !important;
-  --affine-text-disable-color: var(--text-subtle) !important;
-  --affine-border-color: var(--border) !important;
-  --affine-hover-color: var(--surface-4) !important;
-  color-scheme: dark;
+/* Blocknote dark theme — blend into our surface colors */
+.bn-container[data-color-scheme="dark"] {
+  --bn-colors-editor-background: transparent;
+  --bn-colors-editor-text: var(--text);
+  --bn-colors-menu-background: var(--surface-3);
+  --bn-colors-menu-text: var(--text);
+  --bn-colors-tooltip-background: var(--surface-4);
+  --bn-colors-tooltip-text: var(--text);
+  --bn-colors-hovered-background: var(--surface-4);
+  --bn-colors-hovered-text: var(--text);
+  --bn-colors-selected-background: var(--accent-dim);
+  --bn-colors-selected-text: var(--text);
+  --bn-colors-disabled-text: var(--text-subtle);
+  --bn-colors-shadow: rgba(0,0,0,0.4);
+  --bn-colors-border: var(--border);
+  --bn-colors-side-menu: var(--text-subtle);
+  background: transparent;
+}
+
+/* tldraw — respect dark mode automatically via inferDarkMode */
+.tl-container {
+  --tl-color-background: var(--surface-2);
 }
 
 /* Hide BlockSuite's built-in doc title — we display the title in our own modal header */
