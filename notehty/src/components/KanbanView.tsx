@@ -2,6 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import {
   DndContext,
   DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  defaultDropAnimationSideEffects,
+  type DropAnimation,
   type DragEndEvent,
   type DragStartEvent,
   closestCenter,
@@ -21,9 +26,21 @@ interface KanbanViewProps {
   onOpenItem: (item: WorkItem) => void;
 }
 
+const dropAnimation: DropAnimation = {
+  sideEffects: defaultDropAnimationSideEffects({
+    styles: { active: { opacity: "0" } },
+  }),
+};
+
 const KanbanView = ({ onOpenItem }: KanbanViewProps) => {
   const [items, setItems] = useState<WorkItem[]>([]);
   const [dragging, setDragging] = useState<WorkItem | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 5 },
+    }),
+  );
 
   const reload = useCallback(() => {
     listWorkItems().then(setItems).catch(console.error);
@@ -114,6 +131,7 @@ const KanbanView = ({ onOpenItem }: KanbanViewProps) => {
 
   return (
     <DndContext
+      sensors={sensors}
       collisionDetection={closestCenter}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
@@ -161,7 +179,7 @@ const KanbanView = ({ onOpenItem }: KanbanViewProps) => {
         />
       </div>
 
-      <DragOverlay>
+      <DragOverlay dropAnimation={dropAnimation}>
         {dragging && (
           <KanbanCard
             item={dragging}
