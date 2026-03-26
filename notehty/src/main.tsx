@@ -1,5 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import "virtual:uno.css";
 import App from "./App";
 import "./App.css";
 import { EditorProvider } from "./components/editor/EditorProvider";
