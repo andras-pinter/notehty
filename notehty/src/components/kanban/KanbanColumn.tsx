@@ -27,17 +27,13 @@ const KanbanColumn = ({
       style={{
         display: "flex",
         flexDirection: "column",
-        background: "var(--surface-2)",
-        border: `1px solid ${isOver ? "var(--border-mid)" : "var(--border)"}`,
         borderRadius: 8,
         minWidth: 0,
         flex: 1,
         maxWidth: 280,
         overflow: "hidden",
-        transition: "border-color 80ms",
-        boxShadow: isOver
-          ? "inset 0 0 0 1px var(--accent-dim)"
-          : undefined,
+        transition: "background 80ms",
+        background: isOver ? "var(--surface-3)" : "var(--surface-2)",
       }}
     >
       {/* Header */}

@@ -170,7 +170,6 @@ const InProgressColumn = ({
         display: "flex",
         flexDirection: "column",
         background: "var(--surface-2)",
-        border: "1px solid var(--border)",
         borderRadius: 8,
         minWidth: 0,
         flex: "0 0 360px",

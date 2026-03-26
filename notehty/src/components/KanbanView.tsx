@@ -5,8 +5,6 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
-  defaultDropAnimationSideEffects,
-  type DropAnimation,
   type DragEndEvent,
   type DragStartEvent,
   closestCenter,
@@ -25,12 +23,6 @@ import InProgressColumn from "./kanban/InProgressColumn";
 interface KanbanViewProps {
   onOpenItem: (item: WorkItem) => void;
 }
-
-const dropAnimation: DropAnimation = {
-  sideEffects: defaultDropAnimationSideEffects({
-    styles: { active: { opacity: "0" } },
-  }),
-};
 
 const KanbanView = ({ onOpenItem }: KanbanViewProps) => {
   const [items, setItems] = useState<WorkItem[]>([]);
@@ -179,7 +171,7 @@ const KanbanView = ({ onOpenItem }: KanbanViewProps) => {
         />
       </div>
 
-      <DragOverlay dropAnimation={dropAnimation}>
+      <DragOverlay dropAnimation={null}>
         {dragging && (
           <KanbanCard
             item={dragging}

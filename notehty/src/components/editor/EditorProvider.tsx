@@ -7,17 +7,9 @@ import {
 } from "react";
 import { DocCollection, Schema } from "@blocksuite/store";
 import { AffineSchemas } from "@blocksuite/blocks/schemas";
-import { effects as presetsEffects } from "@blocksuite/presets/effects";
 import * as Y from "yjs";
 import type { Doc } from "@blocksuite/store";
 import { getDocument } from "../../invoke";
-
-// Register all BlockSuite custom elements synchronously at module load time.
-// This MUST happen before any React component renders or creates DOM elements.
-// Using customElements.get() as guard makes this safe for Vite HMR re-evaluation.
-if (typeof customElements !== "undefined" && !customElements.get("affine-editor-container")) {
-  presetsEffects();
-}
 
 interface EditorContextValue {
   collection: DocCollection;

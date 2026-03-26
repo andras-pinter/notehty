@@ -1,3 +1,4 @@
+import "./effects-init"; // MUST be first — registers all BlockSuite custom elements
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "virtual:uno.css";
