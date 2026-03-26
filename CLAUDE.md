@@ -100,20 +100,12 @@ New documents are initialized with an empty BlockSuite workspace doc on first ac
 
 ### Block Content Schemas
 
-**text block** — Tiptap document JSON (ProseMirror format):
-```json
-{ "type": "doc", "content": [ ... ] }
-```
+Block content is owned entirely by BlockSuite — the Yjs CRDT state (a binary blob) is the
+source of truth. The Rust backend treats it as an opaque `BLOB`; it does not parse individual
+block types. All text, freeform drawing, and diagram content lives inside the BlockSuite
+workspace doc serialized via `Y.encodeStateAsUpdate(doc.spaceDoc)`.
 
-**freeform block** — array of `perfect-freehand` stroke objects:
-```json
-{ "strokes": [ { "points": [[x,y,pressure], ...], "size": 4, "color": "#000" } ] }
-```
-
-**diagram block** — `@xyflow/svelte` serializable state:
-```json
-{ "nodes": [ ... ], "edges": [ ... ] }
-```
+There are no separate per-block JSON schemas; BlockSuite manages the internal document model.
 
 ---
 
@@ -656,20 +648,19 @@ Register all commands in `main.rs` via `.invoke_handler(tauri::generate_handler!
 
 ### Phase 3 — Frontend Foundation
 
-**Goal:** Svelte 5 app shell with routing between Notepad and Kanban views, no real data yet.
+**Goal:** React 19 app shell with routing between Notepad and Kanban views, no real data yet.
 
 Steps:
-1. Install deps: `npm install react react-dom @types/react @types/react-dom`
+1. The Tauri scaffold already includes React 19. Install additional deps:
    `npm install -D unocss @unocss/preset-wind lucide-react @fontsource/geist @fontsource/geist-mono`
-   Configure UnoCSS Vite plugin in `vite.config.ts`. Update `main.tsx` to use `ReactDOM.createRoot`.
-   Remove any Svelte/Oat/previous CSS framework remnants.
-2. Set up `src/app.css`:
+   Configure UnoCSS Vite plugin in `vite.config.ts` with `presetWind` and CSS var theme mapping.
+2. Set up `src/App.css`:
    - Import Geist fonts via `@fontsource/geist`
    - Define all CSS custom property tokens from the Design System section
    - Set `html, body, #app { height: 100%; margin: 0; background: var(--bg); }`
 3. Build the app shell: sidebar (`--surface-1`, 220px) + `flex-1` main content (`--surface-2`)
    with the collapsible sidebar (220px ↔ 48px icon-only toggle)
-4. Implement navigation between **Notepad** and **Kanban** via sidebar, Svelte 5 `$state`
+4. Implement navigation between **Notepad** and **Kanban** via sidebar, React `useState`
 5. Stub `<NotepadView />` and `<KanbanView />` filling the full content area (`h-full w-full`)
 6. Stub `<WorkItemModal />` as a hidden centered modal
 7. Wire `invoke` imports — confirm a dummy `invoke('greet')` round-trip works
@@ -684,40 +675,52 @@ layers. Font is Geist. No layout shift on collapse.
 
 ### Phase 4 — Notepad View
 
-**Goal:** Functional global notepad with text, free-form, and diagram blocks.
+**Goal:** Functional global notepad powered by BlockSuite's unified editor.
 
-#### Block editor components
+#### Architecture
 
-**`<TextBlock />`**
-- Use `svelte-tiptap` (`npm i svelte-tiptap`) — the Svelte 5 runes-compatible Tiptap wrapper
-- Do NOT use the pattern `editor = editor` for reactivity (Svelte 4 only); `svelte-tiptap`'s
-  `createEditor()` returns a readable store that works correctly with Svelte 5 runes
-- Extensions: `StarterKit`, `Placeholder`
-- On blur: `invoke('update_block', { id, content: JSON.stringify($editor.getJSON()) })`
-- Toolbar: Bold, Italic, Bullet list, Heading (H1–H3)
+All block types (text, freeform drawing, diagrams) are handled natively by BlockSuite's
+`AffineEditorContainer` web component. There are no separate `<TextBlock />`, `<FreeformBlock />`,
+or `<DiagramBlock />` React components — the entire editing surface is one BlockSuite document.
 
-**`<FreeformBlock />`**
-- `<canvas>` element, pointer events for drawing
-- Use `perfect-freehand` (`getStroke`) to compute strokes
-- Serialize strokes to JSON, persist on pointer-up via `update_block`
-- Fixed height (e.g. 300px), full width
+#### Components to build
 
-**`<DiagramBlock />`**
-- Embed `@xyflow/svelte`
-- Allow adding/connecting nodes
-- Serialize via `toObject()`, persist on change (debounced 500ms) via `update_block`
+**`EditorProvider` (`src/components/editor/EditorProvider.tsx`)**
+- React context that manages a single `DocCollection` (BlockSuite workspace) for the whole app
+- Call `effects()` from `@blocksuite/presets/effects` **once** at module load to register all
+  web components (`affine-editor-container`, etc.) as custom elements
+- `getOrLoadDoc(id)` — async; checks cache, loads from `get_document(id)` backend if not cached,
+  calls `Y.applyUpdate(doc.spaceDoc, savedBytes)` to restore, then `doc.load()`
+- For new docs (empty blob), call `doc.load(() => { d.addBlock('affine:page', {}); ... })` using
+  `doc as any` to bypass TypeScript strict flavour typing for `addBlock`
+- Must wrap the entire app (wrap `<App />` in `<EditorProvider>` in `main.tsx`)
 
-#### NotepadView behaviour
-- On mount: `invoke('get_global_notepad')` → render blocks in order
-- Toolbar to add a new block: **+ Text**, **+ Drawing**, **+ Diagram**
-- Each block has a context menu (right-click or `⋮` button): **Delete**, **Promote to Work Item** (text blocks only, or any block)
-- Drag handles for reordering blocks → calls `reorder_blocks` on drop
-- Use the same native HTML5 DnD pattern as Kanban cards (drag handle icon `⠿`, `draggable="true"`
-  on the block wrapper, drop zone is the block list)
-- **Reordering must be fully functional in both GlobalNotepad and WorkItem panels before the
-  phase is considered complete**
+**`BlockSuiteEditor` (`src/components/editor/BlockSuiteEditor.tsx`)**
+- Mounts `affine-editor-container` via `useRef` + `useEffect` — never as a JSX tag
+- `document.createElement('affine-editor-container')` → set `.doc` and `.mode` props → append to ref
+- Debounced save (500ms) on `spaceDoc.on('update', ...)` events →
+  calls `update_document(id, bytes, plainText, title)`
+- `extractTitle` / `extractPlainText`: cast `getBlockByFlavour(...)` results `as unknown as {...}`
+  to access `.title` / `.text` properties (BlockSuite's TS types don't expose these directly)
+- Props: `docId: string`, `mode: 'page' | 'edgeless'`
 
-**Verify:** Can create, edit, reorder, and delete all three block types. Promote creates a WorkItem visible in Kanban.
+**`NotepadView` (`src/components/NotepadView.tsx`)**
+- Renders `<BlockSuiteEditor docId="global" mode="page" />`
+- Receives `onPromote` prop (for future promotion flow)
+
+#### Key gotchas
+
+- `effects()` must be called before any editor is mounted; call at top of `EditorProvider.tsx`
+- `doc.addBlock('affine:surface', ...)` fails TypeScript strict checking because `'affine:surface'`
+  is not in the `Flavour` union — cast `doc as any` for the init callback
+- BlockSuite `getBlockByFlavour()` returns `BlockModel[]` but model properties (`.title`, `.text`)
+  are not in the TS types — use `as unknown as { title?: ... }` casts
+- `Y.encodeStateAsUpdate` returns `Uint8Array`; Tauri serialises `Vec<u8>` as `number[]` —
+  use `Array.from(bytes)` when sending to backend, `new Uint8Array(arr)` when receiving
+- Version pinning: all `@blocksuite/*` packages must be the same version (0.19.5); a top-level
+  newer version of `@blocksuite/store` will cause silent runtime failures
+
+**Verify:** App opens, global notepad is editable, text persists across restarts (check SQLite).
 
 ---
 
@@ -809,10 +812,9 @@ After any mutation, re-fetch (or update local `$state` optimistically).
 - Inline-editable title → `invoke('update_work_item_title')`
 - Status selector → `invoke('set_work_item_status')`
 - Focus toggle (only when `status = in_progress`) → `invoke('set_focus')`
-- Full block editor (same `<TextBlock />`, `<FreeformBlock />`, `<DiagramBlock />` components)
-  - Loads via `list_work_items` (blocks included in `WorkItemWithBlocks`)
-  - Add/delete/reorder blocks scoped to this WorkItem's `work_item_id`
-  - Slash commands work identically to the GlobalNotepad
+- Full block editor (`<BlockSuiteEditor docId={String(item.id)} mode="page" />`)
+  - Doc is loaded/cached by `EditorProvider`; saves automatically on change
+  - Slash commands work identically to the GlobalNotepad (BlockSuite built-in)
 - Toolbar row (top-right of modal):
   - **⤢ Open in new window** — opens the WorkItem in a dedicated Tauri window (full screen,
     same editor, no modal chrome). Use `tauri::WebviewWindowBuilder` to spawn the window,
@@ -824,7 +826,7 @@ After any mutation, re-fetch (or update local `$state` optimistically).
 - Opens as a centered modal occupying ~85% of window width and ~90% of window height
 - Blurred backdrop (`backdrop-filter: blur(4px)`) dims the content behind
 - Close on Escape or click outside the modal
-- Modal state managed in top-level `$state` (selected WorkItem id or `null`)
+- Modal state managed in top-level React `useState` (selected WorkItem or `null`)
 
 **Verify:** Open panel, edit title, change status, add a block, close panel — all persisted.
 
@@ -872,7 +874,38 @@ Checklist:
 
 ---
 
-## Out of Scope (but prepare for it)
+## Known Gotchas
+
+Issues discovered during initial implementation that future agents must be aware of:
+
+### Rust / Diesel
+
+- **No RETURNING clause for SQLite in Diesel 2.2** — `diesel::insert_into(...).returning(...)`
+  does not compile for SQLite. Pattern: `insert.execute(&conn)?` then query by id immediately after
+  using `dsl::work_items.order(id.desc()).first(&conn)?`.
+- **`use tauri::Manager` is mandatory** — without it, both `app.path()` (in setup closure) and
+  `AppHandle::path()` (in commands) fail to resolve. Add this import in every file that calls `.path()`.
+- **FTS5 `fts_content` excluded from `schema.rs`** — Diesel doesn't support virtual tables.
+  All FTS operations must use `diesel::sql_query()` raw SQL.
+- **`crsqlite` extension loading** — `libsqlite3-sys` with `bundled` doesn't expose the raw
+  `*sqlite3` handle through Diesel's public API. The FFI approach (pointer cast through `SqliteConnection`)
+  is fragile and unsafe. Prefer the graceful skip: log a warning if the binary is absent, continue.
+
+### BlockSuite 0.19.5
+
+- **All `@blocksuite/*` packages must be pinned to the same version** — mismatched versions
+  (e.g. `@blocksuite/store@0.22.4` co-existing with `@blocksuite/presets@0.19.5`) cause silent
+  runtime failures. After install, check `node_modules/@blocksuite/*/package.json` versions match.
+- **`effects()` must run before any editor mounts** — call at module load in `EditorProvider.tsx`,
+  not inside `useEffect`. Missing this causes `affine-editor-container` to render as an empty div.
+- **`doc.addBlock` strict typing** — `'affine:surface'` is not in the `Flavour` union type in 0.19.5.
+  Cast `doc as any` for the new-doc init callback.
+- **`getBlockByFlavour` return type** — returns `BlockModel[]` but model properties (`.title`, `.text`)
+  are not on the TS type. Use `as unknown as { title?: { toString: () => string } }` pattern.
+- **Yjs bytes transport** — `Y.encodeStateAsUpdate` → `Uint8Array`. Tauri serialises `Vec<u8>` as
+  `number[]`. Use `Array.from(bytes)` when sending to backend; `new Uint8Array(arr)` when receiving.
+
+---
 
 - Authentication
 - Cloud sync transport (CR-SQLite changesets are ready; just needs a relay — WebSocket server, S3 bucket, etc.)
