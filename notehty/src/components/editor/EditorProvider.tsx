@@ -2,10 +2,8 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useRef,
-  useState,
 } from "react";
 import { DocCollection, Schema } from "@blocksuite/store";
 import { AffineSchemas } from "@blocksuite/blocks/schemas";
@@ -14,14 +12,8 @@ import * as Y from "yjs";
 import type { Doc } from "@blocksuite/store";
 import { getDocument } from "../../invoke";
 
-let effectsRegistered = false;
-
-function ensureEffects() {
-  if (!effectsRegistered) {
-    presetsEffects();
-    effectsRegistered = true;
-  }
-}
+// Register web components once at module load — must happen before any editor mounts
+presetsEffects();
 
 interface EditorContextValue {
   collection: DocCollection;
@@ -37,7 +29,10 @@ export const useEditor = (): EditorContextValue => {
   return ctx;
 };
 
+// Singletons live outside React so StrictMode double-mount doesn't recreate them
 let sharedCollection: DocCollection | null = null;
+// Doc cache: collection.docs returns BlockCollection (wrong type); we keep Doc instances ourselves
+const docCache = new Map<string, Doc>();
 
 function getCollection(): DocCollection {
   if (!sharedCollection) {
@@ -49,66 +44,57 @@ function getCollection(): DocCollection {
 }
 
 export const EditorProvider = ({ children }: { children: React.ReactNode }) => {
-  const [ready, setReady] = useState(false);
   const collectionRef = useRef<DocCollection>(getCollection());
-  const loadingRef = useRef<Set<string>>(new Set());
-
-  useEffect(() => {
-    ensureEffects();
-    setReady(true);
-  }, []);
+  const loadingRef = useRef<Map<string, Promise<Doc>>>(new Map());
 
   const getOrLoadDoc = useCallback(async (id: string): Promise<Doc> => {
-    const collection = collectionRef.current;
+    // Return cached Doc (proper Doc instance, not BlockCollection)
+    const cached = docCache.get(id);
+    if (cached) return cached;
 
-    const existing = collection.docs.get(id);
-    if (existing) return existing as unknown as Doc;
+    // Deduplicate in-flight loads
+    const inflight = loadingRef.current.get(id);
+    if (inflight) return inflight;
 
-    if (loadingRef.current.has(id)) {
-      return new Promise((resolve) => {
-        const check = setInterval(() => {
-          const doc = collection.docs.get(id);
-          if (doc) {
-            clearInterval(check);
-            resolve(doc as unknown as Doc);
-          }
-        }, 50);
-      });
-    }
+    const load = async (): Promise<Doc> => {
+      const collection = collectionRef.current;
+      const savedBytes = await getDocument(id);
 
-    loadingRef.current.add(id);
+      // createDoc adds a BlockCollection and returns a Doc wrapper
+      const doc = collection.createDoc({ id }) as Doc;
 
-    const savedBytes = await getDocument(id);
-    const doc = collection.createDoc({ id });
+      if (savedBytes && savedBytes.length > 0) {
+        Y.applyUpdate(doc.spaceDoc, new Uint8Array(savedBytes));
+        doc.load();
+      } else {
+        doc.load(() => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const d = doc as any;
+          const rootId = d.addBlock("affine:page", {});
+          d.addBlock("affine:surface", {}, rootId);
+          const noteId = d.addBlock("affine:note", {}, rootId);
+          d.addBlock("affine:paragraph", {}, noteId);
+        });
+      }
 
-    if (savedBytes && savedBytes.length > 0) {
-      Y.applyUpdate(doc.spaceDoc, new Uint8Array(savedBytes));
-      doc.load();
-    } else {
-      doc.load(() => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const d = doc as any;
-        const rootId = d.addBlock("affine:page", {});
-        d.addBlock("affine:surface", {}, rootId);
-        const noteId = d.addBlock("affine:note", {}, rootId);
-        d.addBlock("affine:paragraph", {}, noteId);
-      });
-    }
+      docCache.set(id, doc);
+      loadingRef.current.delete(id);
+      return doc;
+    };
 
-    loadingRef.current.delete(id);
-    return doc as unknown as Doc;
+    const promise = load();
+    loadingRef.current.set(id, promise);
+    return promise;
   }, []);
 
   const getDocIfLoaded = useCallback((id: string): Doc | null => {
-    return (collectionRef.current.docs.get(id) as unknown as Doc) ?? null;
+    return docCache.get(id) ?? null;
   }, []);
 
   const value = useMemo(
     () => ({ collection: collectionRef.current, getOrLoadDoc, getDocIfLoaded }),
     [getOrLoadDoc, getDocIfLoaded],
   );
-
-  if (!ready) return null;
 
   return (
     <EditorContext.Provider value={value}>{children}</EditorContext.Provider>

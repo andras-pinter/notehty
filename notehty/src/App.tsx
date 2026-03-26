@@ -8,8 +8,8 @@ import type { WorkItem } from "./invoke";
 type View = "notepad" | "kanban";
 
 const App = () => {
-  const [view, setView] = useState<View>("notepad");
-  const [collapsed, setCollapsed] = useState(false);
+  const [view, setView] = useState<View>("kanban");
+  const [collapsed, setCollapsed] = useState(true);
   const [selectedItem, setSelectedItem] = useState<WorkItem | null>(null);
 
   const openItem = useCallback((item: WorkItem) => setSelectedItem(item), []);
@@ -69,8 +69,8 @@ const App = () => {
           </button>
         </div>
         <nav style={{ flex: 1, padding: "8px 0" }}>
-          <NavItem icon={<FileText size={16} />} label="Notepad" active={view === "notepad"} collapsed={collapsed} onClick={() => setView("notepad")} />
           <NavItem icon={<LayoutGrid size={16} />} label="Kanban" active={view === "kanban"} collapsed={collapsed} onClick={() => setView("kanban")} />
+          <NavItem icon={<FileText size={16} />} label="Notepad" active={view === "notepad"} collapsed={collapsed} onClick={() => setView("notepad")} />
         </nav>
       </aside>
       <main style={{ flex: 1, background: "var(--surface-2)", overflow: "hidden", position: "relative" }}>
