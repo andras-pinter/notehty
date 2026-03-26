@@ -2,8 +2,10 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
 import { DocCollection, Schema } from "@blocksuite/store";
 import { AffineSchemas } from "@blocksuite/blocks/schemas";
@@ -11,9 +13,6 @@ import { effects as presetsEffects } from "@blocksuite/presets/effects";
 import * as Y from "yjs";
 import type { Doc } from "@blocksuite/store";
 import { getDocument } from "../../invoke";
-
-// Register web components once at module load — must happen before any editor mounts
-presetsEffects();
 
 interface EditorContextValue {
   collection: DocCollection;
@@ -29,9 +28,10 @@ export const useEditor = (): EditorContextValue => {
   return ctx;
 };
 
-// Singletons live outside React so StrictMode double-mount doesn't recreate them
+// Module-level singletons — survive StrictMode double-mount
 let sharedCollection: DocCollection | null = null;
-// Doc cache: collection.docs returns BlockCollection (wrong type); we keep Doc instances ourselves
+let effectsRegistered = false;
+// Doc cache: collection.docs returns BlockCollection (wrong type); cache proper Doc instances
 const docCache = new Map<string, Doc>();
 
 function getCollection(): DocCollection {
@@ -44,8 +44,23 @@ function getCollection(): DocCollection {
 }
 
 export const EditorProvider = ({ children }: { children: React.ReactNode }) => {
+  const [ready, setReady] = useState(false);
   const collectionRef = useRef<DocCollection>(getCollection());
   const loadingRef = useRef<Map<string, Promise<Doc>>>(new Map());
+
+  useEffect(() => {
+    if (!effectsRegistered) {
+      try {
+        presetsEffects();
+        effectsRegistered = true;
+      } catch (e) {
+        // HMR re-registration: customElements.define throws if tag already defined; ignore
+        effectsRegistered = true;
+        console.warn("BlockSuite effects already registered:", e);
+      }
+    }
+    setReady(true);
+  }, []);
 
   const getOrLoadDoc = useCallback(async (id: string): Promise<Doc> => {
     // Return cached Doc (proper Doc instance, not BlockCollection)
@@ -60,7 +75,7 @@ export const EditorProvider = ({ children }: { children: React.ReactNode }) => {
       const collection = collectionRef.current;
       const savedBytes = await getDocument(id);
 
-      // createDoc adds a BlockCollection and returns a Doc wrapper
+      // createDoc registers a BlockCollection and returns a proper Doc wrapper
       const doc = collection.createDoc({ id }) as Doc;
 
       if (savedBytes && savedBytes.length > 0) {
@@ -95,6 +110,9 @@ export const EditorProvider = ({ children }: { children: React.ReactNode }) => {
     () => ({ collection: collectionRef.current, getOrLoadDoc, getDocIfLoaded }),
     [getOrLoadDoc, getDocIfLoaded],
   );
+
+  // Don't render children until custom elements are registered
+  if (!ready) return null;
 
   return (
     <EditorContext.Provider value={value}>{children}</EditorContext.Provider>

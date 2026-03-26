@@ -224,9 +224,8 @@ const InProgressColumn = ({
         />
         <div
           style={{
-            width: 1,
-            background: "var(--border)",
-            borderStyle: "dashed",
+            width: 0,
+            borderLeft: "1px dashed var(--border-mid)",
             flexShrink: 0,
             alignSelf: "stretch",
           }}

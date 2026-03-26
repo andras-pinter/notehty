@@ -1,5 +1,4 @@
 import { useDraggable } from "@dnd-kit/core";
-import { GripVertical } from "lucide-react";
 import type { WorkItem } from "../../invoke";
 
 const STATUS_LABELS: Record<WorkItem["status"], string> = {
@@ -32,71 +31,51 @@ const KanbanCard = ({
     data: { item },
   });
 
+  const cardStyle: React.CSSProperties = {
+    background: "var(--surface-3)",
+    border: "1px solid var(--border)",
+    borderRadius: 6,
+    padding: "10px 12px",
+    cursor: isDragging ? "grabbing" : "grab",
+    transition: "background 80ms, border-color 80ms, box-shadow 80ms",
+    opacity: isDragging ? 0.3 : 1,
+    boxShadow: isDragOverlay ? "0 8px 24px rgba(0,0,0,0.4)" : undefined,
+    userSelect: "none",
+  };
+
   if (isDragOverlay) {
-    return <CardContent item={item} />;
+    return (
+      <div style={{ ...cardStyle, opacity: 1, cursor: "grabbing" }}>
+        <CardInner item={item} />
+      </div>
+    );
   }
 
   return (
     <div
       ref={setNodeRef}
-      style={{
-        opacity: isDragging ? 0.3 : 1,
-        position: "relative",
-        display: "flex",
-        cursor: isDragging ? "grabbing" : "default",
+      {...attributes}
+      {...listeners}
+      style={cardStyle}
+      onClick={onClick}
+      onMouseEnter={(e) => {
+        if (!isDragging) {
+          (e.currentTarget as HTMLDivElement).style.background = "var(--surface-4)";
+          (e.currentTarget as HTMLDivElement).style.borderColor = "var(--border-mid)";
+        }
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLDivElement).style.background = "var(--surface-3)";
+        (e.currentTarget as HTMLDivElement).style.borderColor = "var(--border)";
       }}
     >
-      <button
-        {...attributes}
-        {...listeners}
-        style={{
-          background: "none",
-          border: "none",
-          padding: "0 4px",
-          cursor: "grab",
-          color: "var(--text-subtle)",
-          display: "flex",
-          alignItems: "center",
-          flexShrink: 0,
-          opacity: 0,
-          transition: "opacity 80ms",
-        }}
-        className="drag-handle"
-        title="Drag to reorder"
-      >
-        <GripVertical size={14} />
-      </button>
-      <div style={{ flex: 1 }} onClick={onClick}>
-        <CardContent item={item} />
-      </div>
-
-      <style>{`
-        div:hover > .drag-handle { opacity: 1 !important; }
-      `}</style>
+      <CardInner item={item} />
     </div>
   );
 };
 
-const CardContent = ({ item }: { item: WorkItem }) => (
-  <div
-    style={{
-      background: "var(--surface-3)",
-      border: "1px solid var(--border)",
-      borderRadius: 6,
-      padding: "10px 12px",
-      cursor: "pointer",
-      transition: "background 80ms, border-color 80ms",
-    }}
-    onMouseEnter={(e) => {
-      (e.currentTarget as HTMLDivElement).style.background = "var(--surface-4)";
-      (e.currentTarget as HTMLDivElement).style.borderColor =
-        "var(--border-mid)";
-    }}
-    onMouseLeave={(e) => {
-      (e.currentTarget as HTMLDivElement).style.background = "var(--surface-3)";
-      (e.currentTarget as HTMLDivElement).style.borderColor = "var(--border)";
-    }}
-  >
+const CardInner = ({ item }: { item: WorkItem }) => (
+  <>
     <p
       style={{
         margin: 0,
@@ -105,6 +84,7 @@ const CardContent = ({ item }: { item: WorkItem }) => (
         fontWeight: 400,
         lineHeight: 1.4,
         marginBottom: 6,
+        pointerEvents: "none",
       }}
     >
       {item.title || <em style={{ color: "var(--text-subtle)" }}>Untitled</em>}
@@ -118,12 +98,13 @@ const CardContent = ({ item }: { item: WorkItem }) => (
         background: "var(--accent-dim)",
         color: STATUS_COLORS[item.status],
         fontWeight: 500,
+        pointerEvents: "none",
       }}
     >
       {STATUS_LABELS[item.status]}
       {item.is_focus === 1 && " ★"}
     </span>
-  </div>
+  </>
 );
 
 export default KanbanCard;
