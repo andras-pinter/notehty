@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS fts_content;
+DROP TABLE IF EXISTS documents;
+DROP TABLE IF EXISTS work_items;

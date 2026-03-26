@@ -12,9 +12,9 @@
   "app": {
     "windows": [
       {
-        "title": "notehty",
-        "width": 800,
-        "height": 600
+        "title": "Notehty",
+        "width": 1280,
+        "height": 800
       }
     ],
     "security": {
