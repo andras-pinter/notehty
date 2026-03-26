@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "notehty",
+  "productName": "Notehty",
   "version": "0.1.0",
   "identifier": "com.pinter.io.notehty",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "notehty",
+        "title": "Notehty",
         "width": 800,
         "height": 600
       }

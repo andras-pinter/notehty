@@ -1,51 +1,124 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import { useState, useCallback } from "react";
+import { FileText, LayoutGrid, ChevronLeft, ChevronRight } from "lucide-react";
+import NotepadView from "./components/NotepadView";
+import KanbanView from "./components/KanbanView";
+import WorkItemModal from "./components/WorkItemModal";
+import type { WorkItem } from "./invoke";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+type View = "notepad" | "kanban";
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+const App = () => {
+  const [view, setView] = useState<View>("notepad");
+  const [collapsed, setCollapsed] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<WorkItem | null>(null);
+
+  const openItem = useCallback((item: WorkItem) => setSelectedItem(item), []);
+  const closeItem = useCallback(() => setSelectedItem(null), []);
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
+    <div style={{ display: "flex", height: "100%", background: "var(--bg)" }}>
+      <aside
+        style={{
+          width: collapsed ? 48 : 220,
+          minWidth: collapsed ? 48 : 220,
+          background: "var(--surface-1)",
+          borderRight: "1px solid var(--border)",
+          display: "flex",
+          flexDirection: "column",
+          transition: "width 80ms ease, min-width 80ms ease",
+          overflow: "hidden",
         }}
       >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: collapsed ? "center" : "space-between",
+            padding: collapsed ? "16px 0" : "16px",
+            borderBottom: "1px solid var(--border)",
+          }}
+        >
+          {!collapsed && (
+            <span
+              style={{
+                fontWeight: 600,
+                fontSize: 13,
+                color: "var(--text-muted)",
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+              }}
+            >
+              Notehty
+            </span>
+          )}
+          <button
+            onClick={() => setCollapsed((c) => !c)}
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--text-muted)",
+              cursor: "pointer",
+              padding: 4,
+              borderRadius: 4,
+              display: "flex",
+              alignItems: "center",
+            }}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+          </button>
+        </div>
+        <nav style={{ flex: 1, padding: "8px 0" }}>
+          <NavItem icon={<FileText size={16} />} label="Notepad" active={view === "notepad"} collapsed={collapsed} onClick={() => setView("notepad")} />
+          <NavItem icon={<LayoutGrid size={16} />} label="Kanban" active={view === "kanban"} collapsed={collapsed} onClick={() => setView("kanban")} />
+        </nav>
+      </aside>
+      <main style={{ flex: 1, background: "var(--surface-2)", overflow: "hidden", position: "relative" }}>
+        {view === "notepad" && <NotepadView onPromote={openItem} />}
+        {view === "kanban" && <KanbanView onOpenItem={openItem} />}
+      </main>
+      {selectedItem && (
+        <WorkItemModal item={selectedItem} onClose={closeItem} onUpdate={setSelectedItem} />
+      )}
+    </div>
   );
+};
+
+interface NavItemProps {
+  icon: React.ReactNode;
+  label: string;
+  active: boolean;
+  collapsed: boolean;
+  onClick: () => void;
 }
+
+const NavItem = ({ icon, label, active, collapsed, onClick }: NavItemProps) => (
+  <button
+    onClick={onClick}
+    title={collapsed ? label : undefined}
+    style={{
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      width: "100%",
+      padding: collapsed ? "10px 0" : "10px 16px",
+      justifyContent: collapsed ? "center" : "flex-start",
+      background: active ? "var(--accent-dim)" : "none",
+      border: "none",
+      borderLeft: active ? "2px solid var(--accent)" : "2px solid transparent",
+      color: active ? "var(--accent-text)" : "var(--text-muted)",
+      cursor: "pointer",
+      fontSize: 13,
+      fontFamily: "inherit",
+      fontWeight: active ? 500 : 400,
+      transition: "background 80ms",
+    }}
+    onMouseEnter={(e) => { if (!active) (e.currentTarget as HTMLButtonElement).style.background = "var(--surface-4)"; }}
+    onMouseLeave={(e) => { if (!active) (e.currentTarget as HTMLButtonElement).style.background = "none"; }}
+  >
+    {icon}
+    {!collapsed && <span>{label}</span>}
+  </button>
+);
 
 export default App;
