@@ -24,7 +24,8 @@ as its own full notepad panel.
 | Styling    | UnoCSS (`@unocss/preset-wind`, Tailwind-compatible)                 |
 | Icons      | `lucide-react`                                                      |
 | Typography | Geist (self-hosted via `@fontsource/geist`)                         |
-| Editor     | BlockSuite `@blocksuite/presets` (DocEditor + EdgelessEditor)       |
+| Rich Text  | Blocknote (`@blocknote/react` + `@blocknote/mantine`)               |
+| Drawing    | tldraw (inline embedded canvas blocks)                              |
 | DnD        | `@dnd-kit/core` + `@dnd-kit/sortable`                               |
 | Sync       | `cr-sqlite` (CRDT extension for SQLite, loaded at runtime)          |
 | API glue   | `@tauri-apps/api/core` (`invoke`)                                   |
@@ -39,35 +40,35 @@ A **Notepad** is the shared content model used by both the global scratch space 
 WorkItem. It is not a separate entity type — it is simply the rich content body that everything
 composes.
 
-A Notepad is a **BlockSuite document** rendered by `DocEditor`. The entire editing surface
-is one continuous document — text, drawings, and diagrams are all first-class block types
-within the same editor, flowing inline with each other.
+A Notepad is a **Blocknote document** with support for rich text and embedded tldraw drawing
+canvases. The editor surface handles text natively; drawings are custom Blocknote block types
+that embed a full tldraw canvas inline.
 
-BlockSuite handles all block types natively:
+| Block type      | How inserted              | Description                                                   |
+|-----------------|---------------------------|---------------------------------------------------------------|
+| Paragraph/text  | Default                   | Rich text with bold, italic, headings H1–H3, bullet lists, numbered lists, inline code, quotes |
+| Drawing canvas  | `/draw` slash command     | Inline tldraw canvas (freehand, shapes, arrows, sticky notes) |
+| Divider, quote, code | slash commands       | Standard Blocknote block types, available by default          |
 
-| Block type      | How inserted         | Description                                          |
-|-----------------|----------------------|------------------------------------------------------|
-| Paragraph/text  | Default              | Rich text with bold, italic, headings H1–H3, bullet lists, numbered lists, inline code |
-| Freeform drawing| `/draw` slash command| Embedded canvas block using BlockSuite's built-in surface |
-| Diagram (edgeless)| `/diagram` slash command | EdgelessEditor embedded inline as a block       |
-| Divider, quote, code | slash commands  | Standard BlockSuite block types, available by default |
-
-**Persistence:** BlockSuite documents are backed by Yjs CRDT state. The binary Yjs update
-is serialized and stored in SQLite as a `BLOB` column on the `documents` table. On load,
-the blob is deserialized back into the BlockSuite workspace.
+**Persistence:** Blocknote documents are serialized as a `PartialBlock[]` JSON array, encoded as
+UTF-8 bytes, and stored in SQLite as a `BLOB` column on the `documents` table. Drawing blocks
+save their tldraw snapshot to a separate document row keyed by `block_${blockId}_drawing`.
+On load, the bytes are decoded back to JSON and loaded into the Blocknote editor instance.
 
 ```sql
 CREATE TABLE documents (
-  id        TEXT PRIMARY KEY,  -- 'global' for GlobalNotepad, work_item id for WorkItems
-  yjs_state BLOB NOT NULL,     -- serialized Yjs doc state
+  id         TEXT PRIMARY KEY NOT NULL,
+  yjs_state  BLOB NOT NULL DEFAULT (X''),  -- stores UTF-8 JSON bytes (Blocknote PartialBlock[])
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 ```
 
-This replaces the previous `blocks` table — BlockSuite owns the document model internally.
-The Rust backend stores and retrieves opaque blobs; it does not parse block content.
+The column is named `yjs_state` for historical reasons but now stores UTF-8 JSON.
+The Rust backend treats it as an opaque `BLOB`; it does not parse block content.
 
-New documents are initialized with an empty BlockSuite workspace doc on first access.
+Drawing block documents are stored under `block_${blockId}_drawing` keys in the same table.
+
+New documents start with an empty byte array; the frontend initializes the editor with empty content.
 
 ---
 
@@ -98,14 +99,12 @@ New documents are initialized with an empty BlockSuite workspace doc on first ac
 
 ---
 
-### Block Content Schemas
+### Block Content
 
-Block content is owned entirely by BlockSuite — the Yjs CRDT state (a binary blob) is the
-source of truth. The Rust backend treats it as an opaque `BLOB`; it does not parse individual
-block types. All text, freeform drawing, and diagram content lives inside the BlockSuite
-workspace doc serialized via `Y.encodeStateAsUpdate(doc.spaceDoc)`.
+Block content is owned by Blocknote and serialized as `PartialBlock[]` JSON. The Rust backend
+treats it as opaque bytes. Drawing blocks store their tldraw snapshot JSON separately.
 
-There are no separate per-block JSON schemas; BlockSuite manages the internal document model.
+There are no separate per-block SQL rows; the entire document is one blob per `documents` row.
 
 ---
 
@@ -118,10 +117,10 @@ There are no separate per-block JSON schemas; BlockSuite manages the internal do
 SQLite FTS5 is a built-in virtual table extension — no additional dependencies.
 
 ### Indexing Strategy
-- On every document save (`update_document` command), extract plain text from the Yjs snapshot
-  and upsert into `fts_content`
-- Plain text extraction: deserialize Yjs state → walk the block tree → concatenate text nodes
-- Runs synchronously with the save in the Rust backend
+- On every document save (`update_document` command), the frontend sends `plain_text` and `title`
+  extracted from the Blocknote block tree, upserted into `fts_content`
+- Plain text extraction happens on the frontend: walk `PartialBlock[]`, concatenate text inline content
+- Runs as part of the `updateDocument` invoke call
 
 ### Tauri Commands
 
@@ -218,24 +217,20 @@ Tauri's bundler must include the extension binary for each target platform. Add 
 
 ### Promotion (GlobalNotepad → WorkItem)
 
-Promotion is triggered by **text selection**, not block selection. The user selects any text
-range in the GlobalNotepad using the mouse or keyboard, then triggers promotion via:
-- The BlockSuite floating toolbar that appears on selection (custom action button added to it)
-- Or the `/promote` slash command (promotes the current block's content)
+Promotion is triggered by **text selection** in the GlobalNotepad. The user selects any text
+range and triggers promotion via the `/promote` slash command or a context menu action.
 
 Promotion flow:
-1. Capture the selected text content from the BlockSuite editor via the selection API
+1. Capture the selected text content from the Blocknote editor
 2. A new WorkItem is created with `status = queue` and an empty title
 3. The selected text becomes the first paragraph block in the new WorkItem's document
 4. The selection is deleted from the GlobalNotepad document
-5. The WorkItem modal opens immediately with the title field focused for the user to fill in
-6. Steps 2–4 are atomic — the Yjs updates to both documents and the SQL insert happen in a
-   single Rust transaction; on failure, both document states are rolled back
+5. The WorkItem modal opens immediately with the title field focused
+6. Steps 2–4 are atomic — both document saves and the SQL insert happen in a single Rust
+   transaction; on failure, both document states are rolled back
 
-**Note:** Because BlockSuite manages the document state internally via Yjs, "deleting the
-selection" means applying a Yjs delete operation to the GlobalNotepad doc and saving the
-resulting state. The Rust backend receives two blobs (updated GlobalNotepad + new WorkItem doc)
-and writes them atomically.
+The Rust backend receives two byte arrays (updated GlobalNotepad + new WorkItem doc)
+and writes them atomically via `promote_selection`.
 
 ---
 
@@ -258,11 +253,14 @@ and UI).
 ### WorkItem Panel
 
 Clicking a WorkItem card in the Kanban opens a centered modal containing:
-- The WorkItem's title (editable inline)
-- Its status badge (clickable to change status)
-- Its full Notepad body (same editor as GlobalNotepad)
+- The WorkItem's title (editable inline, auto-saves on blur)
+- Its status badge (clickable to cycle status)
+- A **Notes / Drawing** tab toggle:
+  - **Notes tab**: Blocknote rich-text editor (same slash commands as GlobalNotepad)
+  - **Drawing tab**: full tldraw canvas, independent from the notes content
 
 The panel closes when the user clicks outside or presses Escape.
+If the title is empty on close, the item is silently deleted.
 
 ---
 
@@ -334,8 +332,9 @@ notehty/                         # repo root
 │   │   │   ├── KanbanView.tsx
 │   │   │   ├── WorkItemModal.tsx
 │   │   │   ├── editor/
-│   │   │   │   ├── BlockSuiteEditor.tsx  # React wrapper for BlockSuite web component
-│   │   │   │   └── EditorProvider.tsx    # workspace/doc lifecycle management
+│   │   │   │   ├── NoteEditor.tsx       # Blocknote rich-text editor with /draw slash command
+│   │   │   │   ├── DrawingEditor.tsx    # tldraw canvas (standalone, used in WorkItem modal Drawing tab)
+│   │   │   │   └── DrawingBlock.tsx     # custom Blocknote block spec — embeds tldraw inline
 │   │   │   └── kanban/
 │   │   │       ├── KanbanColumn.tsx
 │   │   │       ├── KanbanCard.tsx
@@ -359,7 +358,9 @@ notehty/                         # repo root
 - Rust commands are split by domain into `commands/` submodules, all registered in `lib.rs`
 - `schema.rs` is generated — never edit manually; re-run `diesel migration run` to regenerate
 - CR-SQLite binaries are platform-specific; all three must be present in `resources/` and declared in `tauri.conf.json` under `bundle.resources`
-- BlockSuite components are web components — always mount via `useRef` + `useEffect` in React, never render as JSX tags directly
+- `NoteEditor` and `DrawingEditor` are React components — mount normally as JSX
+- The Blocknote schema (with `DrawingBlock`) is created once at module level in `NoteEditor.tsx` and shared by all editor instances
+- Drawing blocks within notes save their tldraw state to `block_${blockId}_drawing` document rows; the block's Blocknote `id` is the stable key
 
 
 ---
@@ -474,34 +475,45 @@ Prefer:
 Slash commands are the primary interaction model for the Notepad editor.
 
 ### Behaviour
-- Typing `/` on an empty line (or after a space) opens the **command palette**
+- Typing `/` anywhere in the editor opens the **command palette**
 - The palette is a floating popover anchored below the cursor
 - It shows a filterable, keyboard-navigable list of available commands
-- Typing after `/` filters the list with fuzzy search + autocomplete
+- Typing after `/` filters the list with fuzzy search
 - `Enter` or click executes the highlighted command; `Escape` dismisses
 
 ### Available Commands
 
-| Command     | Action                                              |
-|-------------|-----------------------------------------------------|
-| `/draw`     | Insert a new freeform drawing block below cursor    |
-| `/diagram`  | Insert a new diagram block below cursor             |
-| `/h1`       | Convert current line to Heading 1                   |
-| `/h2`       | Convert current line to Heading 2                   |
-| `/h3`       | Convert current line to Heading 3                   |
-| `/bullet`   | Start a bullet list                                 |
-| `/numbered` | Start a numbered list                               |
-| `/promote`  | Promote current block to a WorkItem                 |
+Built-in Blocknote commands (always available):
+
+| Command       | Action                                  |
+|---------------|-----------------------------------------|
+| `/h1` `/h2` `/h3` | Convert current line to Heading     |
+| `/bullet`     | Start a bullet list                     |
+| `/numbered`   | Start a numbered list                   |
+| `/quote`      | Insert a quote block                    |
+| `/code`       | Insert a code block                     |
+| `/divider`    | Insert a horizontal divider             |
+
+Custom commands added via `SuggestionMenuController`:
+
+| Command   | Action                                              |
+|-----------|-----------------------------------------------------|
+| `/draw`   | Insert a 340px inline tldraw drawing canvas         |
 
 ### Implementation
-- BlockSuite's `DocEditor` includes a built-in slash command widget (`SlashMenuWidget`)
-- Extend it by registering custom slash menu items via the block spec's widget config —
-  no need to build a suggestion popup from scratch
-- `/draw` inserts a BlockSuite surface/freeform block using the editor's command API
-- `/diagram` inserts an embedded `EdgelessEditor` block inline
-- `/promote` triggers the promotion flow (captures selection, calls Rust backend)
-- The same slash menu config is applied to both GlobalNotepad and WorkItem editors via a
-  shared `editorConfig` constant
+- `BlockNoteView` is rendered with `slashMenu={false}` to disable the default menu
+- A `<SuggestionMenuController triggerCharacter="/">` wraps the custom items:
+  `[...getDefaultReactSlashMenuItems(editor), drawingItem]`
+- `filterSuggestionItems` from `@blocknote/core` provides fuzzy filtering
+- The Drawing item is in the `"Media"` group and matches aliases `draw`, `sketch`, `canvas`
+- `DrawingBlock` is a `createReactBlockSpec` custom block — the tldraw canvas mounts via React,
+  no `useRef`/`useEffect` needed; the block `id` (stable UUID) is used as the drawing's `docId`
+- The same slash menu config applies to both GlobalNotepad and WorkItem Note editors via the
+  shared `schema` constant in `NoteEditor.tsx`
+
+### Side Menu
+The Blocknote side menu (drag handle + `+` add button) is hidden via `sideMenu={false}` on
+`BlockNoteView`. Content is added exclusively via slash commands.
 
 ## Implementation Phases
 
@@ -540,8 +552,9 @@ Steps:
      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
    );
 
-   -- Stores serialized Yjs binary state for each document.
+   -- Stores serialized document content (UTF-8 JSON bytes — Blocknote PartialBlock[]).
    -- 'global' is the singleton GlobalNotepad; work item docs use the work_item id as text.
+   -- Drawing blocks within notes use 'block_{blockId}_drawing' keys.
    CREATE TABLE documents (
      id         TEXT PRIMARY KEY NOT NULL,
      yjs_state  BLOB NOT NULL DEFAULT (X''),
@@ -619,10 +632,10 @@ Derive `Queryable`, `Insertable`, `Serialize`, `Deserialize` as needed.
 
 #### Commands to implement
 
-**Documents (BlockSuite Yjs persistence)**
-- `get_document(id: String) -> Result<Vec<u8>>` — returns raw Yjs binary state for the doc
-- `update_document(id: String, yjs_state: Vec<u8>, plain_text: String, title: String) -> Result<()>` — saves Yjs blob and updates FTS5 index atomically
-- `promote_selection(global_yjs: Vec<u8>, new_item_yjs: Vec<u8>, title: String) -> Result<WorkItem>` — atomically writes both updated docs + creates WorkItem
+**Documents (content persistence)**
+- `get_document(id: String) -> Result<Vec<u8>>` — returns raw bytes for the doc (UTF-8 JSON)
+- `update_document(id: String, content: Vec<u8>, plain_text: String, title: String) -> Result<()>` — saves bytes and updates FTS5 index atomically
+- `promote_selection(global_content: Vec<u8>, new_item_content: Vec<u8>, title: String) -> Result<WorkItem>` — atomically writes both updated docs + creates WorkItem
 
 **WorkItems**
 - `list_work_items() -> Result<Vec<WorkItemWithBlocks>>`
@@ -675,52 +688,38 @@ layers. Font is Geist. No layout shift on collapse.
 
 ### Phase 4 — Notepad View
 
-**Goal:** Functional global notepad powered by BlockSuite's unified editor.
+**Goal:** Functional global notepad powered by Blocknote with inline tldraw drawing support.
 
-#### Architecture
+#### Components
 
-All block types (text, freeform drawing, diagrams) are handled natively by BlockSuite's
-`AffineEditorContainer` web component. There are no separate `<TextBlock />`, `<FreeformBlock />`,
-or `<DiagramBlock />` React components — the entire editing surface is one BlockSuite document.
+**`NoteEditor` (`src/components/editor/NoteEditor.tsx`)**
+- `useCreateBlockNote({ schema })` where `schema` extends `defaultBlockSpecs` with `DrawingBlock`
+- `schema` is a module-level constant (created once, shared by all editor instances)
+- On mount: `getDocument(docId)` → decode UTF-8 bytes → `JSON.parse` → `editor.replaceBlocks`
+- `loadedRef` guard: set `false` before load, `true` after — prevents saving during initial load
+- `docIdRef` stale-load guard: if `docId` changed between load start and completion, discard result
+- `onChange`: debounce 800ms → `JSON.stringify(editor.document)` → encode as UTF-8 → `updateDocument`
+- `sideMenu={false}` hides the Blocknote drag handle and `+` add button
+- `slashMenu={false}` + `<SuggestionMenuController>` for custom slash menu with Drawing item
+- Import `BlockNoteView` from `@blocknote/mantine`; other hooks/types from `@blocknote/react` / `@blocknote/core`
 
-#### Components to build
+**`DrawingBlock` (`src/components/editor/DrawingBlock.tsx`)**
+- `createReactBlockSpec({ type: "drawing", propSchema: {}, content: "none" }, { render })`
+- `render({ block })` returns a 340px `<div>` containing `<DrawingEditor docId={\`block_\${block.id}\`} />`
+- Note: `createReactBlockSpec` returns a factory — call `DrawingBlock()` when registering in schema
 
-**`EditorProvider` (`src/components/editor/EditorProvider.tsx`)**
-- React context that manages a single `DocCollection` (BlockSuite workspace) for the whole app
-- Call `effects()` from `@blocksuite/presets/effects` **once** at module load to register all
-  web components (`affine-editor-container`, etc.) as custom elements
-- `getOrLoadDoc(id)` — async; checks cache, loads from `get_document(id)` backend if not cached,
-  calls `Y.applyUpdate(doc.spaceDoc, savedBytes)` to restore, then `doc.load()`
-- For new docs (empty blob), call `doc.load(() => { d.addBlock('affine:page', {}); ... })` using
-  `doc as any` to bypass TypeScript strict flavour typing for `addBlock`
-- Must wrap the entire app (wrap `<App />` in `<EditorProvider>` in `main.tsx`)
-
-**`BlockSuiteEditor` (`src/components/editor/BlockSuiteEditor.tsx`)**
-- Mounts `affine-editor-container` via `useRef` + `useEffect` — never as a JSX tag
-- `document.createElement('affine-editor-container')` → set `.doc` and `.mode` props → append to ref
-- Debounced save (500ms) on `spaceDoc.on('update', ...)` events →
-  calls `update_document(id, bytes, plainText, title)`
-- `extractTitle` / `extractPlainText`: cast `getBlockByFlavour(...)` results `as unknown as {...}`
-  to access `.title` / `.text` properties (BlockSuite's TS types don't expose these directly)
-- Props: `docId: string`, `mode: 'page' | 'edgeless'`
+**`DrawingEditor` (`src/components/editor/DrawingEditor.tsx`)**
+- `<Tldraw onMount={handleMount} inferDarkMode />`
+- `onMount` must be synchronous (tldraw constraint) — wrap async logic in an IIFE
+- On mount: load snapshot from `docId + "_drawing"` document row
+- `editor.store.listen(cb, { source: "user" })` — fires only on user actions, not programmatic changes
+- Debounce 1000ms → `editor.getSnapshot()` → JSON → UTF-8 bytes → `updateDocument`
 
 **`NotepadView` (`src/components/NotepadView.tsx`)**
-- Renders `<BlockSuiteEditor docId="global" mode="page" />`
-- Receives `onPromote` prop (for future promotion flow)
+- Renders `<NoteEditor docId="global" />`
 
-#### Key gotchas
-
-- `effects()` must be called before any editor is mounted; call at top of `EditorProvider.tsx`
-- `doc.addBlock('affine:surface', ...)` fails TypeScript strict checking because `'affine:surface'`
-  is not in the `Flavour` union — cast `doc as any` for the init callback
-- BlockSuite `getBlockByFlavour()` returns `BlockModel[]` but model properties (`.title`, `.text`)
-  are not in the TS types — use `as unknown as { title?: ... }` casts
-- `Y.encodeStateAsUpdate` returns `Uint8Array`; Tauri serialises `Vec<u8>` as `number[]` —
-  use `Array.from(bytes)` when sending to backend, `new Uint8Array(arr)` when receiving
-- Version pinning: all `@blocksuite/*` packages must be the same version (0.19.5); a top-level
-  newer version of `@blocksuite/store` will cause silent runtime failures
-
-**Verify:** App opens, global notepad is editable, text persists across restarts (check SQLite).
+**Verify:** App opens, global notepad is editable, text persists across restarts. Typing `/draw`
+inserts an inline tldraw canvas. Drawing in the canvas persists.
 
 ---
 
@@ -809,17 +808,13 @@ After any mutation, re-fetch (or update local `$state` optimistically).
 **Goal:** Clicking a card opens a centered modal with the WorkItem's full notepad.
 
 #### Modal contents
-- Inline-editable title → `invoke('update_work_item_title')`
+- Inline-editable title → `invoke('update_work_item_title')` (auto-saves on blur)
 - Status selector → `invoke('set_work_item_status')`
 - Focus toggle (only when `status = in_progress`) → `invoke('set_focus')`
-- Full block editor (`<BlockSuiteEditor docId={String(item.id)} mode="page" />`)
-  - Doc is loaded/cached by `EditorProvider`; saves automatically on change
-  - Slash commands work identically to the GlobalNotepad (BlockSuite built-in)
-- Toolbar row (top-right of modal):
-  - **⤢ Open in new window** — opens the WorkItem in a dedicated Tauri window (full screen,
-    same editor, no modal chrome). Use `tauri::WebviewWindowBuilder` to spawn the window,
-    passing the WorkItem id as a query param.
-  - **✕ Close** — closes the modal
+- **Notes / Drawing** tab toggle in the header:
+  - **Notes tab**: `<NoteEditor docId={String(item.id)} />` — full Blocknote editor with `/draw` and all slash commands
+  - **Drawing tab**: `<DrawingEditor docId={String(item.id)} />` — dedicated full-canvas tldraw (independent from any drawing blocks in the Notes)
+- **✕ Close** — closes the modal; if title is empty, silently deletes the item
 - Delete WorkItem: accessible via right-click context menu on the title, not a visible button
 
 #### UX
@@ -864,8 +859,9 @@ Checklist:
 - Rust: no panics in library code, errors as values, no unnecessary comments
 - All Tauri commands return `crate::error::Result<T>` — use `?` for error propagation; never `.map_err(|e| e.to_string())`
 - React: hooks only (`useState`, `useEffect`, `useRef`), no class components; all components are function components
-- BlockSuite web components are always mounted via `useRef` + `useEffect`, never as JSX tags
-- TypeScript: `const` + arrow functions, no `any`
+- TypeScript: `const` + arrow functions, minimize `any` casts (document with `// eslint-disable-next-line` when unavoidable)
+- Blocknote schema is created at module level in `NoteEditor.tsx` — not inside a component
+- tldraw `onMount` must be a synchronous function — wrap async logic in an IIFE inside it
 - Commits: conventional commits (`feat:`, `fix:`, `refactor:`, `chore:`)
 - Commit messages must describe **what changed and why**, not which phase was completed.
   Bad: `feat: complete phase 3`. Good: `feat(shell): add collapsible sidebar with nav state`
@@ -891,21 +887,26 @@ Issues discovered during initial implementation that future agents must be aware
   `*sqlite3` handle through Diesel's public API. The FFI approach (pointer cast through `SqliteConnection`)
   is fragile and unsafe. Prefer the graceful skip: log a warning if the binary is absent, continue.
 
-### BlockSuite 0.19.5
+### Blocknote + tldraw
 
-- **All `@blocksuite/*` packages must be pinned to the same version** — mismatched versions
-  (e.g. `@blocksuite/store@0.22.4` co-existing with `@blocksuite/presets@0.19.5`) cause silent
-  runtime failures. After install, check `node_modules/@blocksuite/*/package.json` versions match.
-- **`effects()` must run before any editor mounts** — call at module load in `EditorProvider.tsx`,
-  not inside `useEffect`. Missing this causes `affine-editor-container` to render as an empty div.
-- **`doc.addBlock` strict typing** — `'affine:surface'` is not in the `Flavour` union type in 0.19.5.
-  Cast `doc as any` for the new-doc init callback.
-- **`getBlockByFlavour` return type** — returns `BlockModel[]` but model properties (`.title`, `.text`)
-  are not on the TS type. Use `as unknown as { title?: { toString: () => string } }` pattern.
-- **Yjs bytes transport** — `Y.encodeStateAsUpdate` → `Uint8Array`. Tauri serialises `Vec<u8>` as
-  `number[]`. Use `Array.from(bytes)` when sending to backend; `new Uint8Array(arr)` when receiving.
+- **`BlockNoteView` is from `@blocknote/mantine`** — not from `@blocknote/react`. The react package
+  exports `BlockNoteViewRaw` (unstyled). Always import `BlockNoteView` from `@blocknote/mantine`.
+- **`@mantine/core` + `@mantine/hooks` are required peer deps** of `@blocknote/mantine` — install
+  explicitly even if you don't use Mantine directly.
+- **`createReactBlockSpec` returns a factory function** — call `DrawingBlock()` (with parens) when
+  registering in `BlockNoteSchema.create`. The type is `(options?: undefined) => BlockSpec<...>`.
+- **`filterSuggestionItems` and `defaultBlockSpecs` / `BlockNoteSchema`** are from `@blocknote/core`,
+  not `@blocknote/react`.
+- **tldraw `onMount` must be synchronous** — wrap any async loading in an IIFE inside the handler,
+  otherwise TypeScript rejects the prop type (`Promise<void>` is not assignable to `void`).
+- **`editor.store.listen(cb, { source: "user" })`** — the `{ source: "user" }` filter prevents the
+  listener from firing when `editor.loadSnapshot()` is called programmatically, avoiding save loops.
+- **`@blocknote/core/fonts/inter.css` and `@blocknote/mantine/style.css`** must both be imported
+  for the editor to render correctly (fonts + Mantine CSS variables).
 
 ---
+
+## Out of Scope (but prepare for it)
 
 - Authentication
 - Cloud sync transport (CR-SQLite changesets are ready; just needs a relay — WebSocket server, S3 bucket, etc.)
