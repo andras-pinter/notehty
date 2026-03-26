@@ -11,9 +11,13 @@ const App = () => {
   const [view, setView] = useState<View>("kanban");
   const [collapsed, setCollapsed] = useState(true);
   const [selectedItem, setSelectedItem] = useState<WorkItem | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const openItem = useCallback((item: WorkItem) => setSelectedItem(item), []);
-  const closeItem = useCallback(() => setSelectedItem(null), []);
+  const closeItem = useCallback(() => {
+    setSelectedItem(null);
+    setReloadKey((k) => k + 1);
+  }, []);
 
   return (
     <div style={{ display: "flex", height: "100%", background: "var(--bg)" }}>
@@ -75,7 +79,7 @@ const App = () => {
       </aside>
       <main style={{ flex: 1, background: "var(--surface-2)", overflow: "hidden", position: "relative" }}>
         {view === "notepad" && <NotepadView onPromote={openItem} />}
-        {view === "kanban" && <KanbanView onOpenItem={openItem} />}
+        {view === "kanban" && <KanbanView onOpenItem={openItem} reloadKey={reloadKey} />}
       </main>
       {selectedItem && (
         <WorkItemModal item={selectedItem} onClose={closeItem} onUpdate={setSelectedItem} />

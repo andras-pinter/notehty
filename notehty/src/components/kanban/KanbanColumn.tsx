@@ -1,5 +1,4 @@
 import { useDroppable } from "@dnd-kit/core";
-import { Plus } from "lucide-react";
 import type { WorkItem } from "../../invoke";
 import KanbanCard from "./KanbanCard";
 
@@ -9,6 +8,7 @@ interface KanbanColumnProps {
   items: WorkItem[];
   onCardClick: (item: WorkItem) => void;
   onAddItem: () => void;
+  onDeleted: () => void;
   accentColor?: string;
 }
 
@@ -18,22 +18,28 @@ const KanbanColumn = ({
   items,
   onCardClick,
   onAddItem,
+  onDeleted,
   accentColor,
 }: KanbanColumnProps) => {
   const { setNodeRef, isOver } = useDroppable({ id });
 
   return (
     <div
+      onDoubleClick={(e) => {
+        // Only fire if double-click is on the column itself, not on a card
+        if ((e.target as HTMLElement).closest("[data-kanban-card]")) return;
+        onAddItem();
+      }}
       style={{
         display: "flex",
         flexDirection: "column",
         borderRadius: 8,
-        minWidth: 0,
+        minWidth: 200,
         flex: 1,
-        maxWidth: 280,
         overflow: "hidden",
         transition: "background 80ms",
         background: isOver ? "var(--surface-3)" : "var(--surface-2)",
+        cursor: "default",
       }}
     >
       {/* Header */}
@@ -101,6 +107,7 @@ const KanbanColumn = ({
             key={item.id}
             item={item}
             onClick={() => onCardClick(item)}
+            onDeleted={onDeleted}
           />
         ))}
         {items.length === 0 && (
@@ -110,55 +117,12 @@ const KanbanColumn = ({
               fontSize: 12,
               textAlign: "center",
               padding: "16px 0",
+              userSelect: "none",
             }}
           >
-            Empty
+            Double-click to add
           </div>
         )}
-      </div>
-
-      {/* Add button */}
-      <div
-        style={{
-          borderTop: "1px solid var(--border)",
-          padding: "8px",
-          flexShrink: 0,
-        }}
-      >
-        <button
-          onClick={onAddItem}
-          style={{
-            width: "100%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 6,
-            padding: "6px 12px",
-            background: "none",
-            border: "1px dashed var(--border)",
-            borderRadius: 6,
-            color: "var(--text-subtle)",
-            cursor: "pointer",
-            fontSize: 12,
-            fontFamily: "inherit",
-            transition: "all 80ms",
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.borderColor =
-              "var(--border-mid)";
-            (e.currentTarget as HTMLButtonElement).style.color =
-              "var(--text-muted)";
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.borderColor =
-              "var(--border)";
-            (e.currentTarget as HTMLButtonElement).style.color =
-              "var(--text-subtle)";
-          }}
-        >
-          <Plus size={13} />
-          Add
-        </button>
       </div>
     </div>
   );

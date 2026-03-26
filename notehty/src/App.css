@@ -57,3 +57,8 @@ editor-host {
   --affine-hover-color: var(--surface-4) !important;
   color-scheme: dark;
 }
+
+/* Hide BlockSuite's built-in doc title — we display the title in our own modal header */
+doc-title {
+  display: none !important;
+}

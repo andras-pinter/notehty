@@ -29,6 +29,8 @@ export const useEditor = (): EditorContextValue => {
 let sharedCollection: DocCollection | null = null;
 // Doc cache: collection.docs returns BlockCollection (wrong type); cache proper Doc instances
 const docCache = new Map<string, Doc>();
+// Inflight map must be module-level to survive StrictMode remount (useRef resets on remount)
+const inflightLoads = new Map<string, Promise<Doc>>();
 
 function getCollection(): DocCollection {
   if (!sharedCollection) {
@@ -41,15 +43,14 @@ function getCollection(): DocCollection {
 
 export const EditorProvider = ({ children }: { children: React.ReactNode }) => {
   const collectionRef = useRef<DocCollection>(getCollection());
-  const loadingRef = useRef<Map<string, Promise<Doc>>>(new Map());
 
   const getOrLoadDoc = useCallback(async (id: string): Promise<Doc> => {
     // Return cached Doc (proper Doc instance, not BlockCollection)
     const cached = docCache.get(id);
     if (cached) return cached;
 
-    // Deduplicate in-flight loads
-    const inflight = loadingRef.current.get(id);
+    // Deduplicate in-flight loads (module-level map survives StrictMode remount)
+    const inflight = inflightLoads.get(id);
     if (inflight) return inflight;
 
     const load = async (): Promise<Doc> => {
@@ -73,12 +74,12 @@ export const EditorProvider = ({ children }: { children: React.ReactNode }) => {
       }
 
       docCache.set(id, doc);
-      loadingRef.current.delete(id);
+      inflightLoads.delete(id);
       return doc;
     };
 
     const promise = load();
-    loadingRef.current.set(id, promise);
+    inflightLoads.set(id, promise);
     return promise;
   }, []);
 

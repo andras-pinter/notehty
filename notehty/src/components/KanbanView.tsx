@@ -20,11 +20,24 @@ import KanbanColumn from "./kanban/KanbanColumn";
 import KanbanCard from "./kanban/KanbanCard";
 import InProgressColumn from "./kanban/InProgressColumn";
 
+const ColumnDivider = () => (
+  <div
+    style={{
+      width: 1,
+      background: "var(--border)",
+      alignSelf: "stretch",
+      flexShrink: 0,
+      margin: "0 4px",
+    }}
+  />
+);
+
 interface KanbanViewProps {
   onOpenItem: (item: WorkItem) => void;
+  reloadKey?: number;
 }
 
-const KanbanView = ({ onOpenItem }: KanbanViewProps) => {
+const KanbanView = ({ onOpenItem, reloadKey }: KanbanViewProps) => {
   const [items, setItems] = useState<WorkItem[]>([]);
   const [dragging, setDragging] = useState<WorkItem | null>(null);
 
@@ -40,7 +53,7 @@ const KanbanView = ({ onOpenItem }: KanbanViewProps) => {
 
   useEffect(() => {
     reload();
-  }, [reload]);
+  }, [reload, reloadKey]);
 
   const queue = items.filter((i) => i.status === "queue");
   const priority = items.filter((i) => i.status === "priority");
@@ -100,13 +113,12 @@ const KanbanView = ({ onOpenItem }: KanbanViewProps) => {
       try {
         const item = await createWorkItem();
         const updated = await setWorkItemStatus(item.id, status);
-        reload();
         onOpenItem(updated);
       } catch (e) {
         console.error("Create error:", e);
       }
     },
-    [reload, onOpenItem],
+    [onOpenItem],
   );
 
   const handleAddFocus = useCallback(async () => {
@@ -114,12 +126,11 @@ const KanbanView = ({ onOpenItem }: KanbanViewProps) => {
       const item = await createWorkItem();
       const inProgress = await setWorkItemStatus(item.id, "in_progress");
       const focused = await setFocus(inProgress.id);
-      reload();
       onOpenItem(focused);
     } catch (e) {
       console.error("Create focus error:", e);
     }
-  }, [reload, onOpenItem]);
+  }, [onOpenItem]);
 
   return (
     <DndContext
@@ -131,11 +142,11 @@ const KanbanView = ({ onOpenItem }: KanbanViewProps) => {
       <div
         style={{
           display: "flex",
-          gap: 12,
           padding: 20,
           height: "100%",
           overflowX: "auto",
           alignItems: "stretch",
+          gap: 0,
         }}
       >
         <KanbanColumn
@@ -144,7 +155,9 @@ const KanbanView = ({ onOpenItem }: KanbanViewProps) => {
           items={queue}
           onCardClick={onOpenItem}
           onAddItem={() => handleAdd("queue")}
+          onDeleted={reload}
         />
+        <ColumnDivider />
         <KanbanColumn
           id="priority"
           title="Priority"
@@ -152,7 +165,9 @@ const KanbanView = ({ onOpenItem }: KanbanViewProps) => {
           items={priority}
           onCardClick={onOpenItem}
           onAddItem={() => handleAdd("priority")}
+          onDeleted={reload}
         />
+        <ColumnDivider />
         <InProgressColumn
           parked={parked}
           focused={focused}
@@ -160,7 +175,9 @@ const KanbanView = ({ onOpenItem }: KanbanViewProps) => {
           onAddItem={(sub) =>
             sub === "focus" ? handleAddFocus() : handleAdd("in_progress")
           }
+          onDeleted={reload}
         />
+        <ColumnDivider />
         <KanbanColumn
           id="done"
           title="Done"
@@ -168,6 +185,7 @@ const KanbanView = ({ onOpenItem }: KanbanViewProps) => {
           items={done}
           onCardClick={onOpenItem}
           onAddItem={() => handleAdd("done")}
+          onDeleted={reload}
         />
       </div>
 

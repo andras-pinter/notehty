@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { X, Save } from "lucide-react";
+import { X } from "lucide-react";
 import type { WorkItem } from "../invoke";
 import {
   updateWorkItemTitle,
@@ -39,18 +39,14 @@ const STATUS_COLORS: Record<WorkItem["status"], string> = {
 const WorkItemModal = ({ item, onClose, onUpdate }: WorkItemModalProps) => {
   const [title, setTitle] = useState(item.title);
   const [titleError, setTitleError] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [confirmClose, setConfirmClose] = useState(false);
-  const savedTitleRef = useRef(item.title);
   const backdropRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
-
-  const isDirty = title.trim() !== savedTitleRef.current;
+  const savedTitleRef = useRef(item.title);
 
   useEffect(() => {
     setTitle(item.title);
     savedTitleRef.current = item.title;
-    setConfirmClose(false);
+    setTitleError(false);
   }, [item.id, item.title]);
 
   useEffect(() => {
@@ -58,51 +54,42 @@ const WorkItemModal = ({ item, onClose, onUpdate }: WorkItemModalProps) => {
     titleRef.current?.select();
   }, [item.id]);
 
-  const doSave = useCallback(async (): Promise<boolean> => {
-    if (!title.trim()) {
+  const saveTitle = useCallback(async (value: string): Promise<boolean> => {
+    if (!value.trim()) {
       setTitleError(true);
       titleRef.current?.focus();
       return false;
     }
-    setTitleError(false);
-    if (title === savedTitleRef.current) return true;
-    setSaving(true);
+    if (value.trim() === savedTitleRef.current) return true;
     try {
-      const updated = await updateWorkItemTitle(item.id, title);
+      const updated = await updateWorkItemTitle(item.id, value.trim());
       savedTitleRef.current = updated.title;
       onUpdate(updated);
       return true;
     } catch (e) {
       console.error(e);
       return false;
-    } finally {
-      setSaving(false);
     }
-  }, [title, item.id, onUpdate]);
+  }, [item.id, onUpdate]);
 
-  const handleClose = useCallback(() => {
-    if (isDirty) {
-      setConfirmClose(true);
-    } else {
+  const handleClose = useCallback(async () => {
+    if (!title.trim()) {
+      // Item was never given a title — discard it entirely
+      try { await deleteWorkItem(item.id); } catch { /* ignore */ }
       onClose();
+      return;
     }
-  }, [isDirty, onClose]);
+    const ok = await saveTitle(title);
+    if (ok) onClose();
+  }, [saveTitle, title, onClose, item.id]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        handleClose();
-      }
-      const isSave = (e.metaKey || e.ctrlKey) && e.key === "s";
-      if (isSave) {
-        e.preventDefault();
-        doSave();
-      }
+      if (e.key === "Escape") { e.preventDefault(); handleClose(); }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [handleClose, doSave]);
+  }, [handleClose]);
 
   const handleBackdropClick = useCallback(
     (e: React.MouseEvent) => {
@@ -179,22 +166,18 @@ const WorkItemModal = ({ item, onClose, onUpdate }: WorkItemModalProps) => {
             flexShrink: 0,
           }}
         >
-          {/* Title */}
           <input
             ref={titleRef}
             value={title}
-            onChange={(e) => { setTitle(e.target.value); setTitleError(false); setConfirmClose(false); }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") { e.preventDefault(); doSave(); }
-            }}
+            onChange={(e) => { setTitle(e.target.value); setTitleError(false); }}
+            onBlur={() => saveTitle(title)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); titleRef.current?.blur(); } }}
             placeholder="Title required"
             style={{
               flex: 1,
               background: "none",
               border: "none",
-              borderBottom: titleError
-                ? "1px solid var(--danger)"
-                : "1px solid transparent",
+              borderBottom: titleError ? "1px solid var(--danger)" : "1px solid transparent",
               outline: "none",
               color: titleError ? "var(--danger)" : "var(--text)",
               fontSize: 16,
@@ -207,7 +190,6 @@ const WorkItemModal = ({ item, onClose, onUpdate }: WorkItemModalProps) => {
             title="Right-click to delete"
           />
 
-          {/* Status badge — click to cycle */}
           <button
             onClick={handleStatusCycle}
             title="Click to change status"
@@ -229,22 +211,15 @@ const WorkItemModal = ({ item, onClose, onUpdate }: WorkItemModalProps) => {
             {item.is_focus === 1 && " ★"}
           </button>
 
-          {/* Focus toggle (only in_progress) */}
           {item.status === "in_progress" && (
             <button
               onClick={handleFocusToggle}
               style={{
                 padding: "3px 8px",
                 borderRadius: 4,
-                border: item.is_focus === 1
-                  ? "1px solid var(--focus-accent)"
-                  : "1px solid var(--border)",
-                background: item.is_focus === 1
-                  ? "rgba(167,139,250,0.15)"
-                  : "var(--surface-3)",
-                color: item.is_focus === 1
-                  ? "var(--focus-accent)"
-                  : "var(--text-muted)",
+                border: item.is_focus === 1 ? "1px solid var(--focus-accent)" : "1px solid var(--border)",
+                background: item.is_focus === 1 ? "rgba(167,139,250,0.15)" : "var(--surface-3)",
+                color: item.is_focus === 1 ? "var(--focus-accent)" : "var(--text-muted)",
                 fontSize: 11,
                 fontWeight: 500,
                 cursor: "pointer",
@@ -256,35 +231,6 @@ const WorkItemModal = ({ item, onClose, onUpdate }: WorkItemModalProps) => {
             </button>
           )}
 
-          {/* Save button */}
-          <button
-            onClick={doSave}
-            disabled={saving}
-            title="Save (⌘S / Ctrl+S)"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-              padding: "5px 10px",
-              borderRadius: 5,
-              border: isDirty
-                ? "1px solid var(--accent)"
-                : "1px solid var(--border)",
-              background: isDirty ? "var(--accent-dim)" : "var(--surface-3)",
-              color: isDirty ? "var(--accent-text)" : "var(--text-muted)",
-              fontSize: 12,
-              fontWeight: 500,
-              cursor: saving ? "wait" : "pointer",
-              fontFamily: "inherit",
-              transition: "all 80ms",
-              opacity: saving ? 0.6 : 1,
-            }}
-          >
-            <Save size={13} />
-            {saving ? "Saving…" : "Save"}
-          </button>
-
-          {/* Close */}
           <button
             onClick={handleClose}
             style={{
@@ -303,68 +249,12 @@ const WorkItemModal = ({ item, onClose, onUpdate }: WorkItemModalProps) => {
           </button>
         </div>
 
-        {/* Editor */}
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
           <BlockSuiteEditor docId={String(item.id)} mode="page" />
         </div>
-
-        {/* Unsaved changes confirmation bar */}
-        {confirmClose && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              padding: "10px 16px",
-              borderTop: "1px solid var(--border)",
-              background: "var(--surface-3)",
-              flexShrink: 0,
-            }}
-          >
-            <span style={{ flex: 1, fontSize: 13, color: "var(--text-muted)" }}>
-              Unsaved changes to the title.
-            </span>
-            <button
-              onClick={async () => {
-                const ok = await doSave();
-                if (ok) onClose();
-              }}
-              style={{
-                padding: "5px 12px",
-                borderRadius: 5,
-                border: "1px solid var(--accent)",
-                background: "var(--accent-dim)",
-                color: "var(--accent-text)",
-                fontSize: 12,
-                fontWeight: 500,
-                cursor: "pointer",
-                fontFamily: "inherit",
-              }}
-            >
-              Save &amp; Close
-            </button>
-            <button
-              onClick={onClose}
-              style={{
-                padding: "5px 12px",
-                borderRadius: 5,
-                border: "1px solid var(--border)",
-                background: "none",
-                color: "var(--text-muted)",
-                fontSize: 12,
-                fontWeight: 500,
-                cursor: "pointer",
-                fontFamily: "inherit",
-              }}
-            >
-              Discard
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );
 };
 
 export default WorkItemModal;
-

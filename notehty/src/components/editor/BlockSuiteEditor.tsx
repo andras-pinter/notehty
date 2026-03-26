@@ -30,7 +30,7 @@ const BlockSuiteEditor = ({
         setDoc(loadedDoc);
         onDocReady?.(loadedDoc);
       }
-    });
+    }).catch(console.error);
     return () => {
       cancelled = true;
     };

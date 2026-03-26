@@ -1,5 +1,4 @@
 import { useDroppable } from "@dnd-kit/core";
-import { Plus } from "lucide-react";
 import type { WorkItem } from "../../invoke";
 import KanbanCard from "./KanbanCard";
 
@@ -8,6 +7,7 @@ interface InProgressColumnProps {
   focused: WorkItem[];
   onCardClick: (item: WorkItem) => void;
   onAddItem: (subColumn: "parked" | "focus") => void;
+  onDeleted: () => void;
 }
 
 const SubColumn = ({
@@ -17,6 +17,7 @@ const SubColumn = ({
   accentColor,
   onCardClick,
   onAddItem,
+  onDeleted,
 }: {
   id: string;
   label: string;
@@ -24,11 +25,16 @@ const SubColumn = ({
   accentColor?: string;
   onCardClick: (item: WorkItem) => void;
   onAddItem: () => void;
+  onDeleted: () => void;
 }) => {
   const { setNodeRef, isOver } = useDroppable({ id });
 
   return (
     <div
+      onDoubleClick={(e) => {
+        if ((e.target as HTMLElement).closest("[data-kanban-card]")) return;
+        onAddItem();
+      }}
       style={{
         flex: 1,
         display: "flex",
@@ -87,7 +93,7 @@ const SubColumn = ({
         style={{
           flex: 1,
           overflowY: "auto",
-          padding: "4px 8px",
+          padding: "4px 8px 8px",
           display: "flex",
           flexDirection: "column",
           gap: 6,
@@ -102,57 +108,22 @@ const SubColumn = ({
             key={item.id}
             item={item}
             onClick={() => onCardClick(item)}
+            onDeleted={onDeleted}
           />
         ))}
         {items.length === 0 && (
           <div
             style={{
               color: "var(--text-subtle)",
-              fontSize: 12,
+              fontSize: 11,
               textAlign: "center",
               padding: "12px 0",
+              userSelect: "none",
             }}
           >
-            {id === "focus" ? "Drop focus here" : "Empty"}
+            {id === "focus" ? "Drop or double-click" : "Double-click to add"}
           </div>
         )}
-      </div>
-
-      <div style={{ padding: "6px 8px", flexShrink: 0 }}>
-        <button
-          onClick={onAddItem}
-          style={{
-            width: "100%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 5,
-            padding: "5px",
-            background: "none",
-            border: "1px dashed var(--border)",
-            borderRadius: 6,
-            color: "var(--text-subtle)",
-            cursor: "pointer",
-            fontSize: 11,
-            fontFamily: "inherit",
-            transition: "all 80ms",
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.borderColor =
-              "var(--border-mid)";
-            (e.currentTarget as HTMLButtonElement).style.color =
-              "var(--text-muted)";
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.borderColor =
-              "var(--border)";
-            (e.currentTarget as HTMLButtonElement).style.color =
-              "var(--text-subtle)";
-          }}
-        >
-          <Plus size={11} />
-          Add
-        </button>
       </div>
     </div>
   );
@@ -163,6 +134,7 @@ const InProgressColumn = ({
   focused,
   onCardClick,
   onAddItem,
+  onDeleted,
 }: InProgressColumnProps) => {
   return (
     <div
@@ -172,7 +144,7 @@ const InProgressColumn = ({
         background: "var(--surface-2)",
         borderRadius: 8,
         minWidth: 0,
-        flex: "0 0 360px",
+        flex: "0 0 480px",
         overflow: "hidden",
       }}
     >
@@ -220,6 +192,7 @@ const InProgressColumn = ({
           items={parked}
           onCardClick={onCardClick}
           onAddItem={() => onAddItem("parked")}
+          onDeleted={onDeleted}
         />
         <div
           style={{
@@ -236,6 +209,7 @@ const InProgressColumn = ({
           items={focused}
           onCardClick={onCardClick}
           onAddItem={() => onAddItem("focus")}
+          onDeleted={onDeleted}
         />
       </div>
     </div>
